@@ -1,13 +1,12 @@
-# Template for a Tango Device Server
-This is a template for what your Readme for a Tango Device Server should look like. This first abstract should summarize what your Tango DS is for.
-Direct further documentation of classes or methods used to the <em>docs</em> folder. Make sure the manuals you upload to <em>manuals</em> are freely accessible. 
+Device server for PI Hexapod positioners. Uses PI GCS library and pipython to communicate with controller via TCP/IP.
 
-## Installation
-Describe how to install necessary packages (maybe drivers) needed for your Tango DS. Maybe it is needed to install by <code>pip3</code> or clone and install from another git.
+## Requirements
+* `libpi_pi_gcs2` library (from software CD or downloaded from PI website; PI provides download links upon request)
+* [pipython](https://pypi.org/project/PIPython/)
 
 ## Configuration
-(Optional)  
-Add some configuration details that need to be set up when registering the Server (which device properties to declare etc.).
+* controller name (e.g. "C-887.52")
+* IP address
 
 ## Authors
-Refer to your organization and leave some contact details of how to reach you in case there are any questions. 
+M. Schneider, MBI Berlin
