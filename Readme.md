@@ -5,8 +5,7 @@ Device server for PI Hexapod positioners. Uses PI GCS library and pipython to co
 * [pipython](https://pypi.org/project/PIPython/)
 
 ## Configuration
-* controller name (e.g. "C-887.52")
-* IP address
+* IP address and port of controller
 
 ## Authors
 M. Schneider, MBI Berlin
