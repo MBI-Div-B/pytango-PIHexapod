@@ -123,6 +123,14 @@ class PIGCSController(Device):
         upper = self.ctrl.qTMX()[axis]
         return [lower, upper]
 
+    @command(
+        dtype_in=str,
+        dtype_out=str,
+    )
+    def query_axis_unit(self, axis):
+        """Return unit string for axis."""
+        return self.ctrl.qPUN()[axis]
+
     @command
     def find_references(self):
         """Find reference marks for all axes."""
@@ -178,12 +186,17 @@ class PIGCSAxis(Device):
             self._position = 0
             self._limit = 0
             self._referenced = False
-            vmin, vmax = self.ctrl.query_axis_limits(self.axis)
-            self.position.set_min_value(vmin)
-            self.position.set_max_value(vmax)
+            self.update_attribute_config()
         else:
             print(f"Axis {self.axis} not in {ctrl_axes}", file=self.log_error)
             self.set_state(DevState.FAULT)
+
+    def update_attribute_config(self):
+        vmin, vmax = self.ctrl.query_axis_limits(self.axis)
+        self.position.set_min_value(vmin)
+        self.position.set_max_value(vmax)
+        unit = self.ctrl.query_axis_unit(self.axis)
+        self.position.set_unit(unit)
 
     def always_executed_hook(self):
         state = self.ctrl.query_axis_state(self.axis)
