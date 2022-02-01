@@ -195,8 +195,6 @@ class PIGCSAxis(Device):
         vmin, vmax = self.ctrl.query_axis_limits(self.axis)
         self.position.set_min_value(vmin)
         self.position.set_max_value(vmax)
-        unit = self.ctrl.query_axis_unit(self.axis)
-        self.position.set_unit(unit)
 
     def always_executed_hook(self):
         state = self.ctrl.query_axis_state(self.axis)
