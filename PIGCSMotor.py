@@ -43,6 +43,7 @@ class PIGCSController(Device):
             print(f"Connection established on {self.host}:\n{idn}", file=self.log_info)
             self._positions = None
             self._limits = None
+            self._referenced = None
             self._moving = None
             self._last_query = 0.0
             self._query_timeout = 0.1
@@ -50,20 +51,17 @@ class PIGCSController(Device):
             self.set_state(DevState.ON)
         except Exception as ex:
             print(f"Error on initialization: {ex}", file=self.log_error)
-            self.set_state(DevState.OFF)
-            sys.exit(255)
+            self.set_state(DevState.FAULT)
 
     def always_executed_hook(self):
         """Query all axes positions, limits and move states."""
-        if (time.time() - self._last_query) > self._query_timeout:
-            self._positions = self.ctrl.qPOS()
-            self._limits = self.ctrl.qLIM()
-            self._moving = self.ctrl.IsMoving(self._axis_names)
-            if any(self._moving.values()):
-                self.set_state(DevState.MOVING)
-            else:
-                self.set_state(DevState.ON)
-            self._last_query = time.time()
+        if self.dev_state() == DevState.ON:
+            if (time.time() - self._last_query) > self._query_timeout:
+                self._positions = self.ctrl.qPOS()
+                self._limits = self.ctrl.qLIM()
+                self._moving = self.ctrl.IsMoving(self._axis_names)
+                self._referenced = self.ctrl.qFRF()
+                self._last_query = time.time()
 
     def query_position(self, axis):
         return self._positions[axis]
@@ -91,8 +89,21 @@ class PIGCSController(Device):
         doc_out="[pos, limit, move]",
     )
     def query_axis_state(self, axis):
-        """Return position, limit and moving state for axis."""
-        return self._positions[axis], self._limits[axis], self._moving[axis]
+        """Return state for axis.
+
+        Values:
+            position (float)
+            limit state (bool)
+            movement state (bool)
+            reference state (bool)
+        """
+        state = (
+            self._positions[axis],
+            self._limits[axis],
+            self._moving[axis],
+            self._referenced[axis],
+        )
+        return state
 
     @command(
         dtype_out=(str,),
@@ -116,11 +127,6 @@ class PIGCSController(Device):
     def find_references(self):
         """Find reference marks for all axes."""
         self.ctrl.FRF()
-        result = self.ctrl.qFRF()
-        if all(result.values()):
-            self.set_state(DevState.ON)
-        else:
-            self.set_state(DevState.FAULT)
 
     @command
     def halt(self):
@@ -158,6 +164,11 @@ class PIGCSAxis(Device):
         access=AttrWriteType.READ,
     )
 
+    referenced = attribute(
+        dtype=bool,
+        access=AttrWriteType.READ,
+    )
+
     def init_device(self):
         super(PIGCSAxis, self).init_device()
         self.ctrl = DeviceProxy(self.controller)
@@ -166,19 +177,26 @@ class PIGCSAxis(Device):
             self.set_state(DevState.ON)
             self._position = 0
             self._limit = 0
+            self._referenced = False
+            vmin, vmax = self.ctrl.query_axis_limits(self.axis)
+            self.position.set_min_value(vmin)
+            self.position.set_max_value(vmax)
         else:
             print(f"Axis {self.axis} not in {ctrl_axes}", file=self.log_error)
             self.set_state(DevState.FAULT)
 
     def always_executed_hook(self):
         state = self.ctrl.query_axis_state(self.axis)
-        print(f"READ STATE: {self.axis} {state}")
+        print(f"READ STATE: {self.axis} {state}", file=self.log_debug)
         self._position = state[0]
         self._limit = bool(state[1])
+        self._referenced = bool(state[3])
         if state[2]:
             self.set_state(DevState.MOVING)
         else:
             self.set_state(DevState.ON)
+        if not self._referenced:
+            self.set_state(DevState.WARN)
 
     def read_position(self):
         return self._position
@@ -191,6 +209,9 @@ class PIGCSAxis(Device):
 
     def read_limit_switch(self):
         return self._limit
+
+    def read_referenced(self):
+        return self._referenced
 
     @command
     def halt_axis(self):
