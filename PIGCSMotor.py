@@ -11,7 +11,6 @@ import tango
 from tango import AttrWriteType, DevState, DevDouble, DevBoolean, DeviceProxy
 from tango.server import Device, attribute, command, device_property, run
 import sys
-import time
 
 
 class PIGCSController(Device):
@@ -40,70 +39,37 @@ class PIGCSController(Device):
             self.ctrl = GCS2Device()
             self.ctrl.ConnectTCPIP(self.host, self.port)
             idn = self.ctrl.qIDN()
-            print(f"Connection established on {self.host}:\n{idn}", file=self.log_info)
-            self._positions = None
-            self._limits = None
-            self._referenced = None
-            self._moving = None
-            self._last_query = 0.0
-            self._query_timeout = 0.1
+            print(f"Connection established on {self.host}:\n{idn}",
+                  file=self.log_info)
             self._axis_names = self.ctrl.allaxes
             self.set_state(DevState.ON)
         except Exception as ex:
             print(f"Error on initialization: {ex}", file=self.log_error)
             self.set_state(DevState.FAULT)
 
-    def always_executed_hook(self):
-        """Query all axes positions, limits and move states."""
-        if self.dev_state() == DevState.ON:
-            if (time.time() - self._last_query) > self._query_timeout:
-                self._positions = self.ctrl.qPOS()
-                self._limits = self.ctrl.qLIM()
-                self._moving = self.ctrl.IsMoving(self._axis_names)
-                self._referenced = self.ctrl.qFRF()
-                self._last_query = time.time()
-
-    def query_position(self, axis):
-        return self._positions[axis]
+    def query_axis_position(self, axis):
+        return self.ctrl.qPos(axis)
 
     @command(
-        dtype_in=str,
-        doc_in="formatted string '<axis_name>=<position>'",
+        dtype_in=(str,),
+        doc_in="list of str [<axis_name>, <position>]",
         dtype_out=int,
         doc_out="Result code (0: moving)",
     )
     def set_position(self, position):
-        axis, target = position.split("=")
+        axis, target = position
         target = float(target)
         self.ctrl.MOV(axis, target)
         error = self.ctrl.qERR()
         return error
 
-    def query_limit(self, axis):
-        return self._limits[axis]
+    @command(dtype_in=str, dtype_out=bool)
+    def query_axis_referenced(self, axis):
+        return self.ctrl.qREF(axis)[axis]
 
-    @command(
-        dtype_in=str,
-        doc_in="axis to query",
-        dtype_out=(float,),
-        doc_out="[pos, limit, move]",
-    )
-    def query_axis_state(self, axis):
-        """Return state for axis.
-
-        Values:
-            position (float)
-            limit state (bool)
-            movement state (bool)
-            reference state (bool)
-        """
-        state = (
-            self._positions[axis],
-            self._limits[axis],
-            self._moving[axis],
-            self._referenced[axis],
-        )
-        return state
+    @command(dtype_in=str, dtype_out=bool)
+    def query_axis_moving(self, axis):
+        return self.ctrl.IsMoving()[axis]
 
     @command(
         dtype_out=(str,),
@@ -149,7 +115,6 @@ class PIGCSController(Device):
 
 class PIGCSAxis(Device):
     """"""
-
     controller = device_property(
         dtype=str,
         default_value="",
@@ -167,11 +132,6 @@ class PIGCSAxis(Device):
         access=AttrWriteType.READ_WRITE,
     )
 
-    limit_switch = attribute(
-        dtype=int,
-        access=AttrWriteType.READ,
-    )
-
     referenced = attribute(
         dtype=bool,
         access=AttrWriteType.READ,
@@ -184,7 +144,6 @@ class PIGCSAxis(Device):
         if self.axis in ctrl_axes:
             self.set_state(DevState.ON)
             self._position = 0
-            self._limit = 0
             self._referenced = False
             self.update_attribute_config()
         else:
@@ -197,40 +156,36 @@ class PIGCSAxis(Device):
         self.position.set_max_value(vmax)
 
     def always_executed_hook(self):
-        state = self.ctrl.query_axis_state(self.axis)
-        print(f"READ STATE: {self.axis} {state}", file=self.log_debug)
-        self._position = state[0]
-        self._limit = bool(state[1])
-        self._referenced = bool(state[3])
-        if state[2]:
+        moving = self.ctrl.query_axis_moving(self.axis)
+        referenced = self.ctrl.query_axis_referenced(self.axis)
+        if moving:
             self.set_state(DevState.MOVING)
         else:
             self.set_state(DevState.ON)
-        if not self._referenced:
+        if not referenced:
             self.set_state(DevState.WARN)
 
     def read_position(self):
-        return self._position
+        pos = self.ctrl.query_axis_position(self.axis)
+        return pos
 
     def write_position(self, position):
-        ans = self.ctrl.set_position(f"{self.axis}={position}")
-        print(f"SET POS: {self.axis} -> {position} (ans={ans})")
+        ans = self.ctrl.set_axis_position([self.axis, str(position)])
+        print(f"SET POS: {self.axis} -> {position} (ans={ans})",
+              file=self.log_debug)
         if ans == 0:
             self.set_state(DevState.MOVING)
 
-    def read_limit_switch(self):
-        return self._limit
-
     def read_referenced(self):
-        return self._referenced
+        return self.ctrl.query_axis_referenced(self.axis)
 
     @command
-    def halt_axis(self):
+    def stop(self):
         """Smoothly stop motion"""
         self.ctrl.halt()
 
     @command
-    def stop_axis(self):
+    def abort(self):
         """Abruptly stop all motion."""
         self.ctrl.stop()
 
