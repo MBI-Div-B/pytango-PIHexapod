@@ -128,15 +128,13 @@ class PIGCSAxis(Device):
         doc="name of axis on controller (e.g., X, Y, Z, U, V, W)",
     )
 
-    position = attribute(
-        dtype=float,
-        access=AttrWriteType.READ_WRITE,
-    )
+    position = attribute(dtype=float, access=AttrWriteType.READ_WRITE)
 
-    referenced = attribute(
-        dtype=bool,
-        access=AttrWriteType.READ,
-    )
+    referenced = attribute(dtype=bool, access=AttrWriteType.READ)
+
+    hw_limit_plus = attribute(dtype=bool, access=AttrWriteType.READ)
+
+    hw_limit_minus = attribute(dtype=bool, access=AttrWriteType.READ)
 
     def init_device(self):
         super(PIGCSAxis, self).init_device()
@@ -151,12 +149,13 @@ class PIGCSAxis(Device):
             self.set_state(DevState.FAULT)
 
     def update_attribute_config(self):
-        vmin, vmax = self.ctrl.query_axis_limits(self.axis)
-        self.position.set_min_value(vmin)
-        self.position.set_max_value(vmax)
+        self._vmin, self._vmax = self.ctrl.query_axis_limits(self.axis)
+        self.position.set_min_value(self._vmin)
+        self.position.set_max_value(self._vmax)
 
     def read_position(self):
         pos = self.ctrl.query_axis_position(self.axis)
+        print(f"read_position: {pos}", file=self.log_debug)
         moving = self.ctrl.query_axis_moving(self.axis)
         if moving:
             self.set_state(DevState.MOVING)
@@ -174,6 +173,12 @@ class PIGCSAxis(Device):
     def read_referenced(self):
         referenced = self.ctrl.query_axis_referenced(self.axis)
         return referenced
+
+    def read_hw_limit_plus(self):
+        return self.read_position() >= self._vmax
+
+    def read_hw_limit_minus(self):
+        return self.read_position() <= self._vmin
 
     @command
     def stop(self):
