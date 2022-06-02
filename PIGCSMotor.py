@@ -39,7 +39,7 @@ class PIGCSController(Device):
             self.ctrl = GCS2Device()
             self.ctrl.ConnectTCPIP(self.host, self.port)
             idn = self.ctrl.qIDN()
-            print(f"Connection established on {self.host}:\n{idn}",
+            print(f"Connection established:\n{idn}",
                   file=self.log_info)
             self._axis_names = self.ctrl.allaxes
             self.set_state(DevState.ON)
@@ -47,8 +47,9 @@ class PIGCSController(Device):
             print(f"Error on initialization: {ex}", file=self.log_error)
             self.set_state(DevState.FAULT)
 
+    @command(dtype_in=str, dtype_out=float)
     def query_axis_position(self, axis):
-        return self.ctrl.qPos(axis)
+        return float(self.ctrl.qPOS(axis)[axis])
 
     @command(
         dtype_in=(str,),
@@ -56,7 +57,7 @@ class PIGCSController(Device):
         dtype_out=int,
         doc_out="Result code (0: moving)",
     )
-    def set_position(self, position):
+    def set_axis_position(self, position):
         axis, target = position
         target = float(target)
         self.ctrl.MOV(axis, target)
@@ -65,7 +66,7 @@ class PIGCSController(Device):
 
     @command(dtype_in=str, dtype_out=bool)
     def query_axis_referenced(self, axis):
-        return self.ctrl.qREF(axis)[axis]
+        return bool(self.ctrl.qFRF(axis)[axis])
 
     @command(dtype_in=str, dtype_out=bool)
     def query_axis_moving(self, axis):
@@ -85,8 +86,8 @@ class PIGCSController(Device):
     )
     def query_axis_limits(self, axis):
         """Return limit positions for axis."""
-        lower = self.ctrl.qTMN()[axis]
-        upper = self.ctrl.qTMX()[axis]
+        lower = self.ctrl.qTMN(axis)[axis]
+        upper = self.ctrl.qTMX(axis)[axis]
         return [lower, upper]
 
     @command(
@@ -140,11 +141,10 @@ class PIGCSAxis(Device):
     def init_device(self):
         super(PIGCSAxis, self).init_device()
         self.ctrl = DeviceProxy(self.controller)
+        print(f"Create attribute poxy: {self.controller}", file=self.log_debug)
         ctrl_axes = self.ctrl.get_axis_names()
         if self.axis in ctrl_axes:
             self.set_state(DevState.ON)
-            self._position = 0
-            self._referenced = False
             self.update_attribute_config()
         else:
             print(f"Axis {self.axis} not in {ctrl_axes}", file=self.log_error)
@@ -155,18 +155,13 @@ class PIGCSAxis(Device):
         self.position.set_min_value(vmin)
         self.position.set_max_value(vmax)
 
-    def always_executed_hook(self):
+    def read_position(self):
+        pos = self.ctrl.query_axis_position(self.axis)
         moving = self.ctrl.query_axis_moving(self.axis)
-        referenced = self.ctrl.query_axis_referenced(self.axis)
         if moving:
             self.set_state(DevState.MOVING)
         else:
             self.set_state(DevState.ON)
-        if not referenced:
-            self.set_state(DevState.WARN)
-
-    def read_position(self):
-        pos = self.ctrl.query_axis_position(self.axis)
         return pos
 
     def write_position(self, position):
@@ -177,7 +172,8 @@ class PIGCSAxis(Device):
             self.set_state(DevState.MOVING)
 
     def read_referenced(self):
-        return self.ctrl.query_axis_referenced(self.axis)
+        referenced = self.ctrl.query_axis_referenced(self.axis)
+        return referenced
 
     @command
     def stop(self):
