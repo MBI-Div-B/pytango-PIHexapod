@@ -8,7 +8,8 @@ PI Hexapod tango device server
 
 from pipython import GCS2Device
 import tango
-from tango import AttrWriteType, DevState, DevDouble, DevBoolean, DeviceProxy
+import numpy as np
+from tango import AttrWriteType, DevState, DevDouble, DevBoolean, DeviceProxy, DevVarDoubleArray
 from tango.server import Device, attribute, command, device_property, run
 import sys
 import time
@@ -130,6 +131,14 @@ class PIGCSController(Device):
     def query_axis_unit(self, axis):
         """Return unit string for axis."""
         return self.ctrl.qPUN()[axis]
+
+    @command(
+        dtype_in=(float,),
+        doc_in="X,Y,Z pivot point positions.",
+    )
+    def set_pivot_point(self, values):
+        """Sets the pivot point of the hexapod."""
+        self.ctrl.SPI(axes=['X', 'Y', 'Z'], values=list(values[0:3]))
 
     @command
     def find_references(self):
