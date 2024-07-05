@@ -8,7 +8,6 @@ PI Hexapod tango device server
 
 from pipython import GCS2Device
 import tango
-import numpy as np
 from tango import AttrWriteType, DevState, DevDouble, DevBoolean, DeviceProxy, DevVarDoubleArray
 from tango.server import Device, attribute, command, device_property, run
 import sys
