@@ -7,8 +7,7 @@ PI Hexapod tango device server
 """
 
 from pipython import GCS2Device
-import tango
-from tango import AttrWriteType, DevState, DevDouble, DevBoolean, DeviceProxy
+from tango import AttrWriteType, DevState, DevDouble, DevBoolean, DeviceProxy, DevVarDoubleArray
 from tango.server import Device, attribute, command, device_property, run
 import sys
 import time
@@ -29,6 +28,27 @@ class PIGCSController(Device):
         doc="controller port",
     )
 
+    pivot_X = attribute(
+        label='pivot X',       
+        dtype=float,
+        unit='mm',
+        access=AttrWriteType.READ,
+    )
+
+    pivot_Y = attribute( 
+        label='pivot Y',       
+        dtype=float,
+        unit='mm',
+        access=AttrWriteType.READ,
+    )
+
+    pivot_Z = attribute( 
+        label='pivot Z',
+        dtype=float,
+        unit='mm',
+        access=AttrWriteType.READ,
+    )
+
     def init_device(self):
         """Establish connection to controller."""
         super(PIGCSController, self).init_device()
@@ -45,6 +65,7 @@ class PIGCSController(Device):
             self._limits = None
             self._referenced = None
             self._moving = None
+            self._pivot_point = None
             self._last_query = 0.0
             self._query_timeout = 0.1
             self._axis_names = self.ctrl.allaxes
@@ -62,9 +83,19 @@ class PIGCSController(Device):
                 self._moving = self.ctrl.IsMoving(self._axis_names)
                 self._referenced = self.ctrl.qFRF()
                 self._last_query = time.time()
+                self._pivot_point = self.ctrl.qSPI()
 
     def query_position(self, axis):
         return self._positions[axis]
+
+    def read_pivot_X(self):
+        return self._pivot_point['R']
+
+    def read_pivot_Y(self):
+        return self._pivot_point['S']
+
+    def read_pivot_Z(self):
+        return self._pivot_point['T']
 
     @command(
         dtype_in=str,
@@ -130,6 +161,14 @@ class PIGCSController(Device):
     def query_axis_unit(self, axis):
         """Return unit string for axis."""
         return self.ctrl.qPUN()[axis]
+
+    @command(
+        dtype_in=(float,),
+        doc_in="X,Y,Z pivot point positions.",
+    )
+    def set_pivot_point(self, values):
+        """Sets the pivot point of the hexapod."""
+        self.ctrl.SPI(axes=['X', 'Y', 'Z'], values=list(values[0:3]))
 
     @command
     def find_references(self):
@@ -214,7 +253,7 @@ class PIGCSAxis(Device):
 
     def write_position(self, position):
         ans = self.ctrl.set_position(f"{self.axis}={position}")
-        print(f"SET POS: {self.axis} -> {position} (ans={ans})")
+        # print(f"SET POS: {self.axis} -> {position} (ans={ans})")
         if ans == 0:
             self.set_state(DevState.MOVING)
 
