@@ -16,7 +16,7 @@ from tango import (
     DevVarDoubleArray,
     AttributeConfig,
 )
-from tango.server import Device, attribute, command, device_property, run, memorized
+from tango.server import Device, attribute, command, device_property, run
 import sys
 import time
 
@@ -283,7 +283,9 @@ class PIGCSAxis(Device):
         self.position.set_min_value(vmin)
         self.position.set_max_value(vmax)
         unit = self.ctrl.query_axis_unit(self.axis)
-        self.position.set_unit(unit)
+        attr_props = self.position.get_properties()
+        attr_props.unit = unit
+        self.position.set_properties(attr_props)
 
     def always_executed_hook(self):
         state = self.ctrl.query_axis_state(self.axis)
