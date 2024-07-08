@@ -326,7 +326,7 @@ class PIGCSAxis(Device):
         return self._velocity
 
     def write_velocity(self, value):
-        self.ctrl.write_velocity(value)
+        self.ctrl.set_velocity(value)
 
     @command
     def halt_axis(self):
