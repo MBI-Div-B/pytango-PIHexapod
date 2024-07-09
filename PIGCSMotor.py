@@ -244,6 +244,8 @@ class PIGCSAxis(Device):
     velocity = attribute(
         dtype=float,
         access=AttrWriteType.READ_WRITE,
+        unit='mm/s',
+        doc="system velocity of all six axes",
     )
 
     limit_switch = attribute(
@@ -260,9 +262,11 @@ class PIGCSAxis(Device):
         dtype=bool,
         access=AttrWriteType.READ_WRITE,
         memorized=True,
+        hw_memorized=True,
     )
 
     def init_device(self):
+        self._inverted = False
         super(PIGCSAxis, self).init_device()
         self.ctrl = DeviceProxy(self.controller)
         ctrl_axes = self.ctrl.get_axis_names()
@@ -271,7 +275,6 @@ class PIGCSAxis(Device):
             self._position = 0
             self._velocity = 0
             self._limit = 0
-            self._inverted = False
             self._referenced = False
             self.update_attribute_config()
         else:
