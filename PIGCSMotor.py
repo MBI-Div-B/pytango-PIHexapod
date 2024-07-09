@@ -7,15 +7,7 @@ PI Hexapod tango device server
 """
 
 from pipython import GCS2Device
-from tango import (
-    AttrWriteType,
-    DevState,
-    DevDouble,
-    DevBoolean,
-    DeviceProxy,
-    DevVarDoubleArray,
-    AttributeConfig,
-)
+from tango import AttrWriteType, DevState, DeviceProxy
 from tango.server import Device, attribute, command, device_property, run
 import sys
 import time
@@ -244,7 +236,7 @@ class PIGCSAxis(Device):
     velocity = attribute(
         dtype=float,
         access=AttrWriteType.READ_WRITE,
-        unit='mm/s',
+        unit="mm/s",
         doc="system velocity of all six axes",
     )
 
