@@ -7,7 +7,7 @@ PI Hexapod tango device server
 """
 
 from pipython import GCS2Device
-from tango import AttrWriteType, DevState, DevDouble, DevBoolean, DeviceProxy, DevVarDoubleArray
+from tango import AttrWriteType, DevState, DeviceProxy
 from tango.server import Device, attribute, command, device_property, run
 import sys
 import time
@@ -28,24 +28,31 @@ class PIGCSController(Device):
         doc="controller port",
     )
 
+    velocity = attribute(
+        label="system velocity",
+        dtype=float,
+        access=AttrWriteType.READ_WRITE,
+        unit="mm/s",
+    )
+
     pivot_X = attribute(
-        label='pivot X',       
+        label="pivot X",
         dtype=float,
-        unit='mm',
+        unit="mm",
         access=AttrWriteType.READ,
     )
 
-    pivot_Y = attribute( 
-        label='pivot Y',       
+    pivot_Y = attribute(
+        label="pivot Y",
         dtype=float,
-        unit='mm',
+        unit="mm",
         access=AttrWriteType.READ,
     )
 
-    pivot_Z = attribute( 
-        label='pivot Z',
+    pivot_Z = attribute(
+        label="pivot Z",
         dtype=float,
-        unit='mm',
+        unit="mm",
         access=AttrWriteType.READ,
     )
 
@@ -66,6 +73,7 @@ class PIGCSController(Device):
             self._referenced = None
             self._moving = None
             self._pivot_point = None
+            self._velocity = None
             self._last_query = 0.0
             self._query_timeout = 0.1
             self._axis_names = self.ctrl.allaxes
@@ -82,20 +90,27 @@ class PIGCSController(Device):
                 self._limits = self.ctrl.qLIM()
                 self._moving = self.ctrl.IsMoving(self._axis_names)
                 self._referenced = self.ctrl.qFRF()
-                self._last_query = time.time()
                 self._pivot_point = self.ctrl.qSPI()
+                self._velocity = self.ctrl.qVLS()
+                self._last_query = time.time()
 
     def query_position(self, axis):
         return self._positions[axis]
 
     def read_pivot_X(self):
-        return self._pivot_point['R']
+        return self._pivot_point["R"]
 
     def read_pivot_Y(self):
-        return self._pivot_point['S']
+        return self._pivot_point["S"]
 
     def read_pivot_Z(self):
-        return self._pivot_point['T']
+        return self._pivot_point["T"]
+
+    def read_velocity(self):
+        return self._velocity
+
+    def write_velocity(self, value):
+        self.ctrl.VLS(value)
 
     @command(
         dtype_in=str,
@@ -106,9 +121,19 @@ class PIGCSController(Device):
     def set_position(self, position):
         axis, target = position.split("=")
         target = float(target)
-        self.ctrl.MOV(axis, target)
+        if self.ctrl.qVMO(axis, target):
+            self.ctrl.MOV(axis, target)
+        else:
+            raise ValueError("Target position cannot be reached")
         error = self.ctrl.qERR()
         return error
+
+    @command(
+        dtype_in=float,
+        doc_in="platform velocity in physical units (mm/s)",
+    )
+    def set_velocity(self, velocity):
+        self.ctrl.VLS(velocity)
 
     def query_limit(self, axis):
         return self._limits[axis]
@@ -127,12 +152,14 @@ class PIGCSController(Device):
             limit state (bool)
             movement state (bool)
             reference state (bool)
+            velocity (float)
         """
         state = (
             self._positions[axis],
             self._limits[axis],
             self._moving[axis],
             self._referenced[axis],
+            self._velocity,
         )
         return state
 
@@ -168,7 +195,7 @@ class PIGCSController(Device):
     )
     def set_pivot_point(self, values):
         """Sets the pivot point of the hexapod."""
-        self.ctrl.SPI(axes=['X', 'Y', 'Z'], values=list(values[0:3]))
+        self.ctrl.SPI(axes=["X", "Y", "Z"], values=list(values[0:3]))
 
     @command
     def find_references(self):
@@ -206,6 +233,13 @@ class PIGCSAxis(Device):
         access=AttrWriteType.READ_WRITE,
     )
 
+    velocity = attribute(
+        dtype=float,
+        access=AttrWriteType.READ_WRITE,
+        unit="mm/s",
+        doc="system velocity of all six axes",
+    )
+
     limit_switch = attribute(
         dtype=int,
         access=AttrWriteType.READ,
@@ -216,13 +250,22 @@ class PIGCSAxis(Device):
         access=AttrWriteType.READ,
     )
 
+    inverted = attribute(
+        dtype=bool,
+        access=AttrWriteType.READ_WRITE,
+        memorized=True,
+        hw_memorized=True,
+    )
+
     def init_device(self):
+        self._inverted = False
         super(PIGCSAxis, self).init_device()
         self.ctrl = DeviceProxy(self.controller)
         ctrl_axes = self.ctrl.get_axis_names()
         if self.axis in ctrl_axes:
             self.set_state(DevState.ON)
             self._position = 0
+            self._velocity = 0
             self._limit = 0
             self._referenced = False
             self.update_attribute_config()
@@ -234,11 +277,16 @@ class PIGCSAxis(Device):
         vmin, vmax = self.ctrl.query_axis_limits(self.axis)
         self.position.set_min_value(vmin)
         self.position.set_max_value(vmax)
+        unit = self.ctrl.query_axis_unit(self.axis)
+        attr_props = self.position.get_properties()
+        attr_props.unit = unit
+        self.position.set_properties(attr_props)
 
     def always_executed_hook(self):
         state = self.ctrl.query_axis_state(self.axis)
         print(f"READ STATE: {self.axis} {state}", file=self.log_debug)
         self._position = state[0]
+        self._velocity = state[4]
         self._limit = bool(state[1])
         self._referenced = bool(state[3])
         if state[2]:
@@ -249,10 +297,12 @@ class PIGCSAxis(Device):
             self.set_state(DevState.WARN)
 
     def read_position(self):
-        return self._position
+        sign = -1 if self._inverted else 1
+        return sign * self._position
 
     def write_position(self, position):
-        ans = self.ctrl.set_position(f"{self.axis}={position}")
+        sign = -1 if self._inverted else 1
+        ans = self.ctrl.set_position(f"{self.axis}={sign * position}")
         # print(f"SET POS: {self.axis} -> {position} (ans={ans})")
         if ans == 0:
             self.set_state(DevState.MOVING)
@@ -262,6 +312,18 @@ class PIGCSAxis(Device):
 
     def read_referenced(self):
         return self._referenced
+
+    def read_inverted(self):
+        return self._inverted
+
+    def write_inverted(self, value):
+        self._inverted = value
+
+    def read_velocity(self):
+        return self._velocity
+
+    def write_velocity(self, value):
+        self.ctrl.set_velocity(value)
 
     @command
     def halt_axis(self):
