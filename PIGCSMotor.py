@@ -326,12 +326,12 @@ class PIGCSAxis(Device):
         self.ctrl.set_velocity(value)
 
     @command
-    def halt_axis(self):
+    def stop(self):
         """Smoothly stop motion"""
         self.ctrl.halt()
 
     @command
-    def stop_axis(self):
+    def abort(self):
         """Abruptly stop all motion."""
         self.ctrl.stop()
 
